@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Real-Time Checkers | 2-Player Online Game</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Plus Jakarta Sans', 'sans-serif'],
+            },
+          },
+        },
+      }
+    </script>
+    
+    <style>
+      body {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        background-color: #020617;
+        background-image: 
+          radial-gradient(at 0% 0%, rgba(30, 58, 138, 0.3) 0px, transparent 50%),
+          radial-gradient(at 100% 100%, rgba(136, 19, 55, 0.25) 0px, transparent 50%);
+        background-attachment: fixed;
+      }
+    </style>
+  </head>
+  <body class="text-slate-100 min-h-screen flex flex-col antialiased selection:bg-rose-500 selection:text-white">
+
+    <!-- Header Navigation -->
+    <header class="w-full border-b border-slate-800/80 bg-slate-950/60 backdrop-blur-md sticky top-0 z-50">
+      <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-rose-600 to-amber-500 flex items-center justify-center font-black text-xl shadow-lg shadow-rose-950/50">
+            🏁
+          </div>
+          <span class="font-bold text-lg tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+            Checkers<span class="text-rose-500">Live</span>
+          </span>
+        </div>
+        <div class="flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider text-slate-400 bg-slate-900/80 px-3 py-1.5 rounded-full border border-slate-800">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span>Multiplayer Ready</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Container Mount Point -->
+    <main id="root" class="flex-grow flex flex-col items-center justify-center p-4">
+      <!-- Fallback / Loading State before React loads -->
+      <div class="text-center py-20 space-y-4">
+        <div class="inline-block w-12 h-12 border-4 border-rose-500 border-t-transparent rounded-full animate-spin"></div>
+        <p class="text-slate-400 font-medium animate-pulse">Loading Checkers Arena...</p>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="w-full border-t border-slate-800/60 bg-slate-950/40 py-6 text-center text-xs text-slate-500">
+      <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <p>Real-Time 2-Player Checkers Application</p>
+        <p class="text-slate-600">Powered by React, Tailwind & Firebase Realtime Cloud</p>
+      </div>
+    </footer>
+
+    <!-- Entry point script linking to source directory -->
+    <script type="module" src="/source/main.tsx"></script>
+  </body>
+</html>

@@ -68,20 +68,20 @@
       const { useState, useEffect, useMemo, useRef } = React;
 
       const firebaseConfig = {
-  apiKey: "AIzaSyCPRIediD4e9OVAtKS_W4l9rl_mbRL2lkc",
-  authDomain: "checkers-99.firebaseapp.com",
-  projectId: "checkers-99",
-  storageBucket: "checkers-99.firebasestorage.app",
-  messagingSenderId: "529826802142",
-  appId: "1:529826802142:web:68eb5309ced0ccfa37554f",
-  databaseURL: "https://checkers-99-default-rtdb.asia-southeast1.firebasedatabase.app" // <--- REPLACE THIS LINE
-};
+        apiKey: "AIzaSyCPRIediD4e9OVAtKS_W4l9rl_mbRL2lkc",
+        authDomain: "checkers-99.firebaseapp.com",
+        projectId: "checkers-99",
+        storageBucket: "checkers-99.firebasestorage.app",
+        messagingSenderId: "529826802142",
+        appId: "1:529826802142:web:68eb5309ced0ccfa37554f",
+        databaseURL: "https://checkers-99-default-rtdb.firebaseio.com" // Ensure your exact region URL is here
+      };
 
       const fbApp = initializeApp(firebaseConfig);
       const auth = getAuth(fbApp);
       const db = getDatabase(fbApp);
 
-      // --- Web Audio SFX ---
+      // Web Audio SFX
       class SoundEffects {
         constructor() { this.ctx = null; }
         init() {
@@ -157,10 +157,11 @@
       }
       const sfx = new SoundEffects();
 
-      // --- Board Setup ---
       const BOARD_SIZE = 8;
+
+      // Use empty string "" instead of null so Firebase never drops empty cells or rows
       function createInitialBoard() {
-        const board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+        const board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(""));
         for (let r = 0; r < BOARD_SIZE; r++) {
           for (let c = 0; c < BOARD_SIZE; c++) {
             if ((r + c) % 2 === 1) {
@@ -170,6 +171,21 @@
           }
         }
         return board;
+      }
+
+      // Reconstructs a clean 8x8 2D array if Firebase converted rows to objects
+      function normalizeBoard(rawBoard) {
+        if (!rawBoard) return createInitialBoard();
+        const safeBoard = [];
+        for (let r = 0; r < BOARD_SIZE; r++) {
+          const row = [];
+          for (let c = 0; c < BOARD_SIZE; c++) {
+            const cell = rawBoard[r] ? rawBoard[r][c] : "";
+            row.push(cell || "");
+          }
+          safeBoard.push(row);
+        }
+        return safeBoard;
       }
 
       function isRed(p) { return p === 'r' || p === 'R'; }
@@ -244,7 +260,6 @@
         const [isCreating, setIsCreating] = useState(false);
         const [isJoining, setIsJoining] = useState(false);
 
-        // Sign in on load with fallback retry
         useEffect(() => {
           let isMounted = true;
           const performLogin = async () => {
@@ -252,16 +267,10 @@
               const cred = await signInAnonymously(auth);
               if (isMounted) setUser(cred.user);
             } catch (err) {
-              console.error("Auth sign-in error:", err);
+              console.error("Auth error:", err);
               if (isMounted) {
                 setAuthError(err.message);
-                if (err.code === 'auth/unauthorized-domain') {
-                  setNotification("Domain not whitelisted in Firebase Auth Settings.");
-                } else if (err.code === 'auth/operation-not-allowed') {
-                  setNotification("Anonymous Authentication is disabled in Firebase Console.");
-                } else {
-                  setNotification("Auth error: " + err.message);
-                }
+                setNotification("Auth error: " + err.message);
               }
             }
           };
@@ -285,20 +294,22 @@
         useEffect(() => {
           const params = new URLSearchParams(window.location.search);
           const roomFromUrl = params.get('room');
-          if (roomFromUrl && user) {
+          if (roomFromUrl && user && !roomId) {
             const cleanCode = roomFromUrl.toUpperCase();
             setRoomIdInput(cleanCode);
             joinRoom(cleanCode);
           }
         }, [user]);
 
-        // Realtime Database subscription
+        // Realtime Database subscription with normalizeBoard
         useEffect(() => {
           if (!roomId) return;
           const gameRef = ref(db, `checkers_games/${roomId}`);
           const unsubscribe = onValue(gameRef, (snapshot) => {
             if (snapshot.exists()) {
-              setGameData(snapshot.val());
+              const data = snapshot.val();
+              data.board = normalizeBoard(data.board);
+              setGameData(data);
             } else {
               setGameData(null);
               setNotification("Room expired or not found.");
@@ -331,10 +342,10 @@
               turn: 'red',
               players: {
                 red: currentUser.uid,
-                black: null
+                black: ""
               },
               status: 'waiting',
-              winner: null,
+              winner: "",
               activeChain: null,
               captures: { red: 0, black: 0 },
               createdAt: Date.now()
@@ -347,11 +358,7 @@
             sfx.playMove();
           } catch (err) {
             console.error("Failed to create room:", err);
-            if (err.message && err.message.includes('PERMISSION_DENIED')) {
-              setNotification("PERMISSION DENIED: Update Firebase Realtime Database rules for checkers_games.");
-            } else {
-              setNotification("Failed to create match: " + (err.message || err));
-            }
+            setNotification("Failed to create match: " + (err.message || err));
           } finally {
             setIsCreating(false);
           }
@@ -404,8 +411,8 @@
 
         const playerRole = useMemo(() => {
           if (!gameData || !user) return 'spectator';
-          if (gameData.players.red === user.uid) return 'red';
-          if (gameData.players.black === user.uid) return 'black';
+          if (gameData.players?.red === user.uid) return 'red';
+          if (gameData.players?.black === user.uid) return 'black';
           return 'spectator';
         }, [gameData, user]);
 
@@ -438,7 +445,7 @@
 
           if (piece && getPieceOwner(piece) === playerRole) {
             if (gameData.activeChain && (gameData.activeChain.r !== r || gameData.activeChain.c !== c)) {
-              setNotification("Continue your jump sequence with the active piece.");
+              setNotification("Continue jump sequence with the active piece.");
               return;
             }
             const movesForPiece = validMoves.filter(m => m.from[0] === r && m.from[1] === c);
@@ -458,7 +465,7 @@
           const [fromR, fromC] = move.from;
           const [toR, toC] = move.to;
           let piece = nextBoard[fromR][fromC];
-          nextBoard[fromR][fromC] = null;
+          nextBoard[fromR][fromC] = "";
 
           const promoted = (!isKing(piece)) && (
             (piece === 'r' && toR === 0) || (piece === 'b' && toR === BOARD_SIZE - 1)
@@ -476,7 +483,7 @@
           let updatedCaptures = { ...(gameData.captures || { red: 0, black: 0 }) };
           if (move.isJump && move.captured) {
             const [capR, capC] = move.captured;
-            nextBoard[capR][capC] = null;
+            nextBoard[capR][capC] = "";
             if (playerRole === 'red') updatedCaptures.red += 1;
             if (playerRole === 'black') updatedCaptures.black += 1;
           }
@@ -490,7 +497,7 @@
           if (!nextActiveChain) nextTurn = gameData.turn === 'red' ? 'black' : 'red';
 
           const opponentMoves = getAllValidMoves(nextBoard, nextTurn, null);
-          let winner = null;
+          let winner = "";
           let newStatus = gameData.status;
           if (opponentMoves.length === 0) {
             winner = gameData.turn;
@@ -527,7 +534,7 @@
             turn: 'red',
             activeChain: null,
             status: 'active',
-            winner: null,
+            winner: "",
             captures: { red: 0, black: 0 }
           });
           setSelectedSquare(null);
@@ -705,7 +712,7 @@
                           isMyTurn ? "Your turn to move!" : `Waiting for ${gameData.turn} player...`
                         )}
                         {gameData?.status === 'finished' && (
-                          `Game Over! Winner: ${gameData.winner?.toUpperCase()}`
+                          `Game Over! Winner: ${gameData.winner ? gameData.winner.toUpperCase() : "None"}`
                         )}
                       </span>
                     </div>

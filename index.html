@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Real-Time Checkers | 2-Player Online Game</title>
-    
+    <title>Real-Time Checkers Arena</title>
+
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    
+
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -20,79 +20,750 @@
             fontFamily: {
               sans: ['Plus Jakarta Sans', 'sans-serif'],
             },
+            colors: {
+              boardDark: '#1e293b',
+              boardLight: '#334155',
+              checkerRed: '#e11d48',
+              checkerBlack: '#0f172a'
+            }
           },
         },
       }
     </script>
-    
+
+    <!-- React 18 & Babel Standalone for single-file compilation -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Firebase SDK Modular Scripts via ESM / window-ready loading -->
     <style>
       body {
         font-family: 'Plus Jakarta Sans', sans-serif;
         background-color: #020617;
         background-image: 
-          radial-gradient(at 0% 0%, rgba(30, 58, 138, 0.3) 0px, transparent 50%),
-          radial-gradient(at 100% 100%, rgba(136, 19, 55, 0.25) 0px, transparent 50%);
+          radial-gradient(at 0% 0%, rgba(30, 58, 138, 0.25) 0px, transparent 50%),
+          radial-gradient(at 100% 100%, rgba(136, 19, 55, 0.2) 0px, transparent 50%);
         background-attachment: fixed;
+      }
+      .checker-piece {
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5), inset 0 2px 4px rgba(255, 255, 255, 0.3), inset 0 -4px 6px rgba(0, 0, 0, 0.4);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+      .checker-piece:hover {
+        transform: scale(1.04);
+      }
+      .crown-glow {
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.7));
       }
     </style>
   </head>
   <body class="text-slate-100 min-h-screen flex flex-col antialiased selection:bg-rose-500 selection:text-white">
+    <div id="root" class="flex flex-col min-h-screen"></div>
 
-    <!-- Header Navigation -->
-    <header class="w-full border-b border-slate-800/80 bg-slate-950/60 backdrop-blur-md sticky top-0 z-50">
-      <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-        <div class="flex items-center space-x-3">
-          <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-rose-600 to-amber-500 flex items-center justify-center font-black text-xl shadow-lg shadow-rose-950/50">
-            🏁
+    <script type="text/babel" data-type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+      import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+      import { getDatabase, ref, onValue, set, update, get } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js";
+
+      const { useState, useEffect, useMemo, useRef } = React;
+
+      const firebaseConfig = {
+        apiKey: "AIzaSyCPRIediD4e9OVAtKS_W4l9rl_mbRL2lkc",
+        authDomain: "checkers-99.firebaseapp.com",
+        projectId: "checkers-99",
+        storageBucket: "checkers-99.firebasestorage.app",
+        messagingSenderId: "529826802142",
+        appId: "1:529826802142:web:68eb5309ced0ccfa37554f",
+        databaseURL: "https://checkers-99-default-rtdb.firebaseio.com"
+      };
+
+      const fbApp = initializeApp(firebaseConfig);
+      const auth = getAuth(fbApp);
+      const db = getDatabase(fbApp);
+
+      // Piece representations:
+      // 'r': Red normal, 'R': Red King
+      // 'b': Black normal, 'B': Black King
+      // null: empty square
+      const BOARD_SIZE = 8;
+
+      function createInitialBoard() {
+        const board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+        for (let r = 0; r < BOARD_SIZE; r++) {
+          for (let c = 0; c < BOARD_SIZE; c++) {
+            if ((r + c) % 2 === 1) {
+              if (r < 3) board[r][c] = 'b';
+              else if (r > 4) board[r][c] = 'r';
+            }
+          }
+        }
+        return board;
+      }
+
+      function isRed(piece) {
+        return piece === 'r' || piece === 'R';
+      }
+
+      function isBlack(piece) {
+        return piece === 'b' || piece === 'B';
+      }
+
+      function isKing(piece) {
+        return piece === 'R' || piece === 'B';
+      }
+
+      function getPieceOwner(piece) {
+        if (!piece) return null;
+        return isRed(piece) ? 'red' : 'black';
+      }
+
+      function getValidMovesForPiece(board, r, c, activeChainPiece = null) {
+        const piece = board[r][c];
+        if (!piece) return [];
+        if (activeChainPiece && (activeChainPiece.r !== r || activeChainPiece.c !== c)) {
+          return [];
+        }
+
+        const moves = [];
+        const owner = getPieceOwner(piece);
+        const directions = [];
+
+        // Forward directions: Red moves -1 (up), Black moves +1 (down)
+        if (piece === 'r' || isKing(piece)) directions.push([-1, -1], [-1, 1]);
+        if (piece === 'b' || isKing(piece)) directions.push([1, -1], [1, 1]);
+
+        directions.forEach(([dr, dc]) => {
+          const nr = r + dr;
+          const nc = c + dc;
+
+          // Regular slide moves (only permitted if not in the middle of a multi-jump chain)
+          if (!activeChainPiece && nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+            if (!board[nr][nc]) {
+              moves.push({ from: [r, c], to: [nr, nc], isJump: false });
+            }
+          }
+
+          // Jump captures over opponent
+          const jumpR = r + dr * 2;
+          const jumpC = c + dc * 2;
+          if (jumpR >= 0 && jumpR < BOARD_SIZE && jumpC >= 0 && jumpC < BOARD_SIZE) {
+            const intermediate = board[nr][nc];
+            const target = board[jumpR][jumpC];
+            if (intermediate && getPieceOwner(intermediate) !== owner && !target) {
+              moves.push({
+                from: [r, c],
+                to: [jumpR, jumpC],
+                isJump: true,
+                captured: [nr, nc]
+              });
+            }
+          }
+        });
+
+        return moves;
+      }
+
+      function getAllValidMoves(board, turn, activeChainPiece = null) {
+        let allMoves = [];
+
+        if (activeChainPiece) {
+          const jumps = getValidMovesForPiece(board, activeChainPiece.r, activeChainPiece.c, activeChainPiece)
+            .filter(m => m.isJump);
+          return jumps;
+        }
+
+        for (let r = 0; r < BOARD_SIZE; r++) {
+          for (let c = 0; c < BOARD_SIZE; c++) {
+            const piece = board[r][c];
+            if (piece && getPieceOwner(piece) === turn) {
+              const pieceMoves = getValidMovesForPiece(board, r, c);
+              allMoves.push(...pieceMoves);
+            }
+          }
+        }
+
+        // Standard Checkers rule: mandatory jumps if any jump is available
+        const jumpMoves = allMoves.filter(m => m.isJump);
+        if (jumpMoves.length > 0) {
+          return jumpMoves;
+        }
+        return allMoves;
+      }
+
+      function App() {
+        const [user, setUser] = useState(null);
+        const [roomIdInput, setRoomIdInput] = useState('');
+        const [roomId, setRoomId] = useState('');
+        const [gameData, setGameData] = useState(null);
+        const [selectedSquare, setSelectedSquare] = useState(null);
+        const [notification, setNotification] = useState('');
+        const [isJoining, setIsJoining] = useState(false);
+
+        // Sign in anonymously on load
+        useEffect(() => {
+          signInAnonymously(auth).catch(err => {
+            console.error("Auth error:", err);
+            setNotification("Failed to authenticate session.");
+          });
+
+          const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+            if (currentUser) setUser(currentUser);
+          });
+          return () => unsubscribe();
+        }, []);
+
+        // Listen for query params for direct invite links
+        useEffect(() => {
+          const params = new URLSearchParams(window.location.search);
+          const roomFromUrl = params.get('room');
+          if (roomFromUrl) {
+            setRoomIdInput(roomFromUrl.toUpperCase());
+            joinRoom(roomFromUrl.toUpperCase());
+          }
+        }, [user]);
+
+        // Subscribe to Realtime Database when in a room
+        useEffect(() => {
+          if (!roomId || !user) return;
+
+          const gameRef = ref(db, `checkers_games/${roomId}`);
+          const unsubscribe = onValue(gameRef, (snapshot) => {
+            if (snapshot.exists()) {
+              setGameData(snapshot.val());
+            } else {
+              setGameData(null);
+              setNotification("Room not found or expired.");
+            }
+          }, (error) => {
+            console.error("Database sync error:", error);
+            setNotification("Network error syncing game state.");
+          });
+
+          return () => unsubscribe();
+        }, [roomId, user]);
+
+        // Auto-clear notification after 4s
+        useEffect(() => {
+          if (notification) {
+            const t = setTimeout(() => setNotification(''), 4000);
+            return () => clearTimeout(t);
+          }
+        }, [notification]);
+
+        const createRoom = async () => {
+          if (!user) return;
+          setIsJoining(true);
+          const newRoomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+          const initialBoard = createInitialBoard();
+
+          const newGame = {
+            id: newRoomCode,
+            board: initialBoard,
+            turn: 'red',
+            players: {
+              red: user.uid,
+              black: null
+            },
+            status: 'waiting', // waiting, active, finished
+            winner: null,
+            activeChain: null,
+            captures: { red: 0, black: 0 },
+            createdAt: Date.now()
+          };
+
+          try {
+            await set(ref(db, `checkers_games/${newRoomCode}`), newGame);
+            setRoomId(newRoomCode);
+            setRoomIdInput(newRoomCode);
+            window.history.replaceState(null, '', `?room=${newRoomCode}`);
+          } catch (e) {
+            console.error(e);
+            setNotification("Failed to create game room.");
+          } finally {
+            setIsJoining(false);
+          }
+        };
+
+        const joinRoom = async (codeToJoin) => {
+          const targetCode = (codeToJoin || roomIdInput).trim().toUpperCase();
+          if (!targetCode || !user) return;
+          setIsJoining(true);
+
+          try {
+            const gameRef = ref(db, `checkers_games/${targetCode}`);
+            const snapshot = await get(gameRef);
+
+            if (!snapshot.exists()) {
+              setNotification("Game room does not exist.");
+              setIsJoining(false);
+              return;
+            }
+
+            const current = snapshot.val();
+            let updatedPlayers = { ...current.players };
+            let updatedStatus = current.status;
+
+            // Assign slot if available
+            if (current.players.red === user.uid) {
+              // Already red player
+            } else if (current.players.black === user.uid) {
+              // Already black player
+            } else if (!current.players.black) {
+              updatedPlayers.black = user.uid;
+              updatedStatus = 'active';
+            }
+
+            await update(gameRef, {
+              players: updatedPlayers,
+              status: updatedStatus
+            });
+
+            setRoomId(targetCode);
+            window.history.replaceState(null, '', `?room=${targetCode}`);
+          } catch (err) {
+            console.error(err);
+            setNotification("Could not join room.");
+          } finally {
+            setIsJoining(false);
+          }
+        };
+
+        const playerRole = useMemo(() => {
+          if (!gameData || !user) return 'spectator';
+          if (gameData.players.red === user.uid) return 'red';
+          if (gameData.players.black === user.uid) return 'black';
+          return 'spectator';
+        }, [gameData, user]);
+
+        const isMyTurn = useMemo(() => {
+          if (!gameData || gameData.status !== 'active') return false;
+          return gameData.turn === playerRole;
+        }, [gameData, playerRole]);
+
+        // Valid moves available currently
+        const validMoves = useMemo(() => {
+          if (!gameData || !gameData.board) return [];
+          return getAllValidMoves(gameData.board, gameData.turn, gameData.activeChain || null);
+        }, [gameData]);
+
+        // Moves filtered for currently selected square
+        const selectedSquareMoves = useMemo(() => {
+          if (!selectedSquare) return [];
+          return validMoves.filter(
+            m => m.from[0] === selectedSquare.r && m.from[1] === selectedSquare.c
+          );
+        }, [selectedSquare, validMoves]);
+
+        const handleSquareClick = async (r, c) => {
+          if (!isMyTurn || gameData.status !== 'active') return;
+
+          const piece = gameData.board[r][c];
+
+          // If clicking destination square for selected piece
+          if (selectedSquare) {
+            const move = selectedSquareMoves.find(m => m.to[0] === r && m.to[1] === c);
+            if (move) {
+              await executeMove(move);
+              return;
+            }
+          }
+
+          // If choosing a selectable piece
+          if (piece && getPieceOwner(piece) === playerRole) {
+            if (gameData.activeChain && (gameData.activeChain.r !== r || gameData.activeChain.c !== c)) {
+              setNotification("You must continue the jump sequence with the active piece.");
+              return;
+            }
+
+            const movesForPiece = validMoves.filter(m => m.from[0] === r && m.from[1] === c);
+            if (movesForPiece.length > 0) {
+              setSelectedSquare({ r, c });
+            } else {
+              setNotification(validMoves.some(m => m.isJump) ? "Jump captures are mandatory!" : "This piece has no valid moves.");
+            }
+          } else {
+            if (!gameData.activeChain) {
+              setSelectedSquare(null);
+            }
+          }
+        };
+
+        const executeMove = async (move) => {
+          if (!gameData || !roomId) return;
+
+          const nextBoard = gameData.board.map(row => [...row]);
+          const [fromR, fromC] = move.from;
+          const [toR, toC] = move.to;
+          let piece = nextBoard[fromR][fromC];
+
+          // Move piece
+          nextBoard[fromR][fromC] = null;
+
+          // Check promotion to King
+          const promotedToKing = (!isKing(piece)) && (
+            (piece === 'r' && toR === 0) || (piece === 'b' && toR === BOARD_SIZE - 1)
+          );
+          if (promotedToKing) {
+            piece = piece === 'r' ? 'R' : 'B';
+          }
+          nextBoard[toR][toC] = piece;
+
+          // Remove captured piece if jump
+          let updatedCaptures = { ...(gameData.captures || { red: 0, black: 0 }) };
+          if (move.isJump && move.captured) {
+            const [capR, capC] = move.captured;
+            nextBoard[capR][capC] = null;
+            if (playerRole === 'red') updatedCaptures.red += 1;
+            if (playerRole === 'black') updatedCaptures.black += 1;
+          }
+
+          // Check for continuous multi-jumps if piece made a jump and wasn't just promoted
+          let nextActiveChain = null;
+          let nextTurn = gameData.turn;
+
+          if (move.isJump && !promotedToKing) {
+            const followUpJumps = getValidMovesForPiece(nextBoard, toR, toC, { r: toR, c: toC })
+              .filter(m => m.isJump);
+
+            if (followUpJumps.length > 0) {
+              nextActiveChain = { r: toR, c: toC };
+            }
+          }
+
+          // If no chain jump remaining, switch turn
+          if (!nextActiveChain) {
+            nextTurn = gameData.turn === 'red' ? 'black' : 'red';
+          }
+
+          // Check win conditions
+          const opponentMoves = getAllValidMoves(nextBoard, nextTurn, null);
+          let winner = null;
+          let newStatus = gameData.status;
+
+          if (opponentMoves.length === 0) {
+            winner = gameData.turn; // current player won because opponent has no moves
+            newStatus = 'finished';
+          }
+
+          try {
+            await update(ref(db, `checkers_games/${roomId}`), {
+              board: nextBoard,
+              turn: nextTurn,
+              activeChain: nextActiveChain,
+              status: newStatus,
+              winner: winner,
+              captures: updatedCaptures
+            });
+            setSelectedSquare(nextActiveChain ? { r: toR, c: toC } : null);
+          } catch (err) {
+            console.error(err);
+            setNotification("Move submission failed.");
+          }
+        };
+
+        const handleResign = async () => {
+          if (!gameData || gameData.status !== 'active') return;
+          const opposingColor = playerRole === 'red' ? 'black' : 'red';
+          await update(ref(db, `checkers_games/${roomId}`), {
+            status: 'finished',
+            winner: opposingColor
+          });
+        };
+
+        const handleRematch = async () => {
+          if (!roomId) return;
+          await update(ref(db, `checkers_games/${roomId}`), {
+            board: createInitialBoard(),
+            turn: 'red',
+            activeChain: null,
+            status: 'active',
+            winner: null,
+            captures: { red: 0, black: 0 }
+          });
+          setSelectedSquare(null);
+        };
+
+        const copyShareLink = () => {
+          const url = `${window.location.origin}${window.location.pathname}?room=${roomId}`;
+          navigator.clipboard.writeText(url);
+          setNotification("Invite link copied to clipboard!");
+        };
+
+        return (
+          <div className="flex flex-col min-h-screen">
+            {/* Header Bar */}
+            <header class="w-full border-b border-slate-800/80 bg-slate-950/70 backdrop-blur-md sticky top-0 z-50">
+              <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                  <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-rose-600 via-rose-500 to-amber-500 flex items-center justify-center font-black text-xl shadow-lg shadow-rose-950/50">
+                    🏁
+                  </div>
+                  <div>
+                    <span class="font-extrabold text-xl tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+                      Checkers<span class="text-rose-500">Live</span>
+                    </span>
+                    <span class="block text-[10px] text-slate-500 font-semibold tracking-wider uppercase">Cloud Multiplayer</span>
+                  </div>
+                </div>
+
+                <div class="flex items-center space-x-3">
+                  {roomId && (
+                    <div class="flex items-center bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 space-x-2">
+                      <span class="text-xs text-slate-400">ROOM:</span>
+                      <span class="text-xs font-mono font-bold text-amber-400 tracking-wider">{roomId}</span>
+                      <button 
+                        onClick={copyShareLink} 
+                        class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded transition">
+                        Copy
+                      </button>
+                    </div>
+                  )}
+                  <div class="flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider text-slate-400 bg-slate-900/90 px-3 py-1.5 rounded-full border border-slate-800">
+                    <span class={`w-2 h-2 rounded-full ${user ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`}></span>
+                    <span>{user ? 'Online' : 'Connecting'}</span>
+                  </div>
+                </div>
+              </div>
+            </header>
+
+            {/* Notification Banner */}
+            {notification && (
+              <div class="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-rose-600/90 backdrop-blur border border-rose-400 text-white px-5 py-2.5 rounded-xl shadow-2xl text-sm font-semibold animate-bounce">
+                {notification}
+              </div>
+            )}
+
+            {/* Main Stage Content */}
+            <main class="flex-grow flex flex-col items-center justify-center p-4">
+              {!roomId ? (
+                <div class="w-full max-w-md bg-slate-900/90 border border-slate-800 p-8 rounded-3xl shadow-2xl shadow-black/80 backdrop-blur-sm text-center">
+                  <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-3xl">
+                    👑
+                  </div>
+                  <h2 class="text-2xl font-bold text-white mb-2">Checkers Arena</h2>
+                  <p class="text-slate-400 text-sm mb-6">Play real-time 1v1 Checkers with cloud turn sync and mandatory jump enforcement.</p>
+
+                  <div class="space-y-4">
+                    <button
+                      onClick={createRoom}
+                      disabled={isJoining || !user}
+                      class="w-full py-3.5 px-4 bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 font-bold rounded-xl shadow-lg shadow-rose-900/40 transition active:scale-[0.98] disabled:opacity-50">
+                      Create New Match
+                    </button>
+
+                    <div class="flex items-center my-3 text-xs text-slate-500 uppercase tracking-widest font-semibold">
+                      <div class="flex-grow border-t border-slate-800"></div>
+                      <span class="px-3">or join match</span>
+                      <div class="flex-grow border-t border-slate-800"></div>
+                    </div>
+
+                    <div class="flex space-x-2">
+                      <input
+                        type="text"
+                        placeholder="ENTER ROOM CODE"
+                        value={roomIdInput}
+                        onChange={(e) => setRoomIdInput(e.target.value.toUpperCase())}
+                        maxLength={6}
+                        class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-center uppercase font-mono tracking-widest text-slate-100 placeholder-slate-600 focus:outline-none focus:border-rose-500"
+                      />
+                      <button
+                        onClick={() => joinRoom(roomIdInput)}
+                        disabled={isJoining || !roomIdInput || !user}
+                        class="px-6 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl transition disabled:opacity-50">
+                        Join
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div class="w-full max-w-4xl flex flex-col lg:flex-row items-center justify-center gap-8">
+                  {/* Left Column: Player Cards & Turn Status */}
+                  <div class="w-full lg:w-64 flex flex-row lg:flex-col gap-4 justify-between">
+                    {/* Red Player Card */}
+                    <div class={`flex-1 p-4 rounded-2xl border transition-all ${
+                      gameData?.turn === 'red' && gameData?.status === 'active'
+                        ? 'bg-rose-950/40 border-rose-500/80 shadow-lg shadow-rose-950/50 ring-2 ring-rose-500/30'
+                        : 'bg-slate-900/60 border-slate-800'
+                    }`}>
+                      <div class="flex items-center space-x-3 mb-2">
+                        <div class="w-7 h-7 rounded-full bg-rose-600 border-2 border-rose-400 shadow-md flex items-center justify-center font-bold text-xs text-white">
+                          R
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <p class="text-xs font-semibold text-slate-400 uppercase">Red Team</p>
+                          <p class="text-sm font-bold text-white truncate">
+                            {gameData?.players.red === user?.uid ? "You" : gameData?.players.red ? "Opponent" : "Waiting..."}
+                          </p>
+                        </div>
+                      </div>
+                      <div class="flex justify-between items-center text-xs text-slate-400 pt-2 border-t border-slate-800/80">
+                        <span>Captured:</span>
+                        <span class="font-bold text-rose-400">{gameData?.captures?.red || 0}</span>
+                      </div>
+                    </div>
+
+                    {/* Black Player Card */}
+                    <div class={`flex-1 p-4 rounded-2xl border transition-all ${
+                      gameData?.turn === 'black' && gameData?.status === 'active'
+                        ? 'bg-slate-800/60 border-amber-500/80 shadow-lg shadow-black/60 ring-2 ring-amber-500/30'
+                        : 'bg-slate-900/60 border-slate-800'
+                    }`}>
+                      <div class="flex items-center space-x-3 mb-2">
+                        <div class="w-7 h-7 rounded-full bg-slate-950 border-2 border-slate-600 shadow-md flex items-center justify-center font-bold text-xs text-slate-300">
+                          B
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <p class="text-xs font-semibold text-slate-400 uppercase">Black Team</p>
+                          <p class="text-sm font-bold text-white truncate">
+                            {gameData?.players.black === user?.uid ? "You" : gameData?.players.black ? "Opponent" : "Waiting for player..."}
+                          </p>
+                        </div>
+                      </div>
+                      <div class="flex justify-between items-center text-xs text-slate-400 pt-2 border-t border-slate-800/80">
+                        <span>Captured:</span>
+                        <span class="font-bold text-amber-400">{gameData?.captures?.black || 0}</span>
+                      </div>
+                    </div>
+
+                    {/* Quick Match Controls */}
+                    <div class="hidden lg:flex flex-col gap-2 pt-2">
+                      <div class="p-3 bg-slate-900/80 rounded-xl border border-slate-800 text-center">
+                        <span class="text-xs text-slate-400 uppercase tracking-wider block">Your Role</span>
+                        <span class="text-sm font-bold capitalize text-white">
+                          {playerRole === 'spectator' ? '👀 Spectator' : `${playerRole} Player`}
+                        </span>
+                      </div>
+
+                      {playerRole !== 'spectator' && gameData?.status === 'active' && (
+                        <button
+                          onClick={handleResign}
+                          class="w-full py-2 bg-slate-900 hover:bg-rose-950 border border-slate-800 hover:border-rose-800 text-rose-400 font-semibold rounded-xl text-xs transition">
+                          Resign Match
+                        </button>
+                      )}
+
+                      {gameData?.status === 'finished' && (
+                        <button
+                          onClick={handleRematch}
+                          class="w-full py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs transition shadow-lg shadow-rose-950/40">
+                          Play Again
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Center Column: Checkers 8x8 Board */}
+                  <div class="relative flex flex-col items-center">
+                    {/* Status Pill Header */}
+                    <div class="mb-4 flex items-center space-x-3 bg-slate-900/90 border border-slate-800 px-4 py-2 rounded-2xl shadow-xl">
+                      <div class={`w-3 h-3 rounded-full ${
+                        gameData?.status === 'waiting' ? 'bg-amber-400 animate-ping' :
+                        gameData?.status === 'finished' ? 'bg-emerald-400' :
+                        gameData?.turn === 'red' ? 'bg-rose-500' : 'bg-slate-300'
+                      }`} />
+                      <span class="text-sm font-semibold text-slate-200">
+                        {gameData?.status === 'waiting' && "Waiting for second player..."}
+                        {gameData?.status === 'active' && (
+                          isMyTurn ? "Your turn to move!" : `Waiting for ${gameData.turn} player...`
+                        )}
+                        {gameData?.status === 'finished' && (
+                          `Game Over! Winner: ${gameData.winner?.toUpperCase()}`
+                        )}
+                      </span>
+                    </div>
+
+                    {/* The 8x8 Board Container */}
+                    <div class="w-[340px] h-[340px] sm:w-[480px] sm:h-[480px] md:w-[540px] md:h-[540px] bg-slate-950 p-3 sm:p-4 rounded-3xl border-4 border-slate-800 shadow-2xl grid grid-cols-8 gap-0 select-none">
+                      {gameData?.board ? (
+                        gameData.board.map((row, r) =>
+                          row.map((cell, c) => {
+                            const isDarkSquare = (r + c) % 2 === 1;
+                            const isSelected = selectedSquare?.r === r && selectedSquare?.c === c;
+                            const isMoveTarget = selectedSquareMoves.some(m => m.to[0] === r && m.to[1] === c);
+                            const isJumpTarget = selectedSquareMoves.some(m => m.to[0] === r && m.to[1] === c && m.isJump);
+
+                            return (
+                              <div
+                                key={`${r}-${c}`}
+                                onClick={() => handleSquareClick(r, c)}
+                                class={`relative flex items-center justify-center cursor-pointer transition-colors ${
+                                  !isDarkSquare ? 'bg-slate-800/40' : 'bg-slate-900'
+                                } ${isSelected ? 'ring-4 ring-inset ring-amber-400/90' : ''}`}>
+                                
+                                {/* Valid move indicators */}
+                                {isMoveTarget && (
+                                  <div class={`absolute z-20 rounded-full transition-transform animate-pulse ${
+                                    isJumpTarget 
+                                      ? 'w-6 h-6 sm:w-8 sm:h-8 border-4 border-rose-500 bg-rose-500/20' 
+                                      : 'w-4 h-4 sm:w-5 sm:h-5 bg-emerald-400/80 ring-4 ring-emerald-400/20'
+                                  }`} />
+                                )}
+
+                                {/* Checker Piece */}
+                                {cell && (
+                                  <div
+                                    class={`checker-piece relative z-10 w-[78%] h-[78%] rounded-full flex items-center justify-center border-4 ${
+                                      isRed(cell)
+                                        ? 'bg-gradient-to-br from-rose-500 via-rose-600 to-rose-800 border-rose-400 text-white'
+                                        : 'bg-gradient-to-br from-slate-800 via-slate-900 to-black border-slate-600 text-amber-400'
+                                    } ${
+                                      isMyTurn && getPieceOwner(cell) === playerRole ? 'hover:brightness-110 cursor-grab active:cursor-grabbing' : ''
+                                    }`}>
+                                    {/* King Crown Icon */}
+                                    {isKing(cell) && (
+                                      <span class="text-xl sm:text-2xl font-black crown-glow select-none">
+                                        👑
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                        )
+                      ) : (
+                        <div class="col-span-8 flex items-center justify-center text-slate-500 font-medium">
+                          Loading board...
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Mobile Controls */}
+                    <div class="lg:hidden flex items-center gap-3 mt-4 w-full justify-center">
+                      {playerRole !== 'spectator' && gameData?.status === 'active' && (
+                        <button
+                          onClick={handleResign}
+                          class="px-4 py-2 bg-slate-900 border border-slate-800 text-rose-400 font-semibold rounded-xl text-xs">
+                          Resign
+                        </button>
+                      )}
+                      {gameData?.status === 'finished' && (
+                        <button
+                          onClick={handleRematch}
+                          class="px-4 py-2 bg-rose-600 text-white font-bold rounded-xl text-xs">
+                          Rematch
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </main>
+
+            <footer class="w-full border-t border-slate-800/60 bg-slate-950/40 py-5 text-center text-xs text-slate-500 mt-auto">
+              <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+                <p>Standard 2-Player Checkers &bull; Mandatory Jumps &bull; Cloud Realtime Sync</p>
+                <p class="text-slate-600">Built with React &amp; Firebase Realtime Database</p>
+              </div>
+            </footer>
           </div>
-          <span class="font-bold text-lg tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
-            Checkers<span class="text-rose-500">Live</span>
-          </span>
-        </div>
-        <div class="flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider text-slate-400 bg-slate-900/80 px-3 py-1.5 rounded-full border border-slate-800">
-          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span>Multiplayer Ready</span>
-        </div>
-      </div>
-    </header>
+        );
+      }
 
-    <!-- Main Container Mount Point -->
-    <main id="root" class="flex-grow flex flex-col items-center justify-center p-4">
-      <!-- Fallback / Loading State before React loads -->
-      <div class="text-center py-20 space-y-4">
-        <div class="inline-block w-12 h-12 border-4 border-rose-500 border-t-transparent rounded-full animate-spin"></div>
-        <p class="text-slate-400 font-medium animate-pulse">Loading Checkers Arena...</p>
-      </div>
-    </main>
-
-    <!-- Footer -->
-    <footer class="w-full border-t border-slate-800/60 bg-slate-950/40 py-6 text-center text-xs text-slate-500">
-      <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-        <p>Real-Time 2-Player Checkers Application</p>
-        <p class="text-slate-600">Powered by React, Tailwind & Firebase Realtime Cloud</p>
-      </div>
-    </footer>
-
-    <!-- Entry point script linking to source directory -->
-    <script type="module" src="/source/main.tsx"></script>
-    <script type="module">
-  // Import the functions you need from the SDKs you need
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
-  // TODO: Add SDKs for Firebase products that you want to use
-  // https://firebase.google.com/docs/web/setup#available-libraries
-
-  // Your web app's Firebase configuration
-  const firebaseConfig = {
-    apiKey: "AIzaSyCPRIediD4e9OVAtKS_W4l9rl_mbRL2lkc",
-    authDomain: "checkers-99.firebaseapp.com",
-    projectId: "checkers-99",
-    storageBucket: "checkers-99.firebasestorage.app",
-    messagingSenderId: "529826802142",
-    appId: "1:529826802142:web:68eb5309ced0ccfa37554f"
-  };
-
-  // Initialize Firebase
-  const app = initializeApp(firebaseConfig);
-</script>
+      const container = document.getElementById("root");
+      const root = ReactDOM.createRoot(container);
+      root.render(<App />);
+    </script>
   </body>
 </html>

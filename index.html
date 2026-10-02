@@ -68,14 +68,14 @@
       const { useState, useEffect, useMemo, useRef } = React;
 
       const firebaseConfig = {
-        apiKey: "AIzaSyCPRIediD4e9OVAtKS_W4l9rl_mbRL2lkc",
-        authDomain: "checkers-99.firebaseapp.com",
-        projectId: "checkers-99",
-        storageBucket: "checkers-99.firebasestorage.app",
-        messagingSenderId: "529826802142",
-        appId: "1:529826802142:web:68eb5309ced0ccfa37554f",
-        databaseURL: "https://checkers-99-default-rtdb.firebaseio.com"
-      };
+  apiKey: "AIzaSyCPRIediD4e9OVAtKS_W4l9rl_mbRL2lkc",
+  authDomain: "checkers-99.firebaseapp.com",
+  projectId: "checkers-99",
+  storageBucket: "checkers-99.firebasestorage.app",
+  messagingSenderId: "529826802142",
+  appId: "1:529826802142:web:68eb5309ced0ccfa37554f",
+  databaseURL: "https://checkers-99-default-rtdb.asia-southeast1.firebasedatabase.app" // <--- REPLACE THIS LINE
+};
 
       const fbApp = initializeApp(firebaseConfig);
       const auth = getAuth(fbApp);

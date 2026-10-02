@@ -75,5 +75,24 @@
 
     <!-- Entry point script linking to source directory -->
     <script type="module" src="/source/main.tsx"></script>
+    <script type="module">
+  // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
+  // TODO: Add SDKs for Firebase products that you want to use
+  // https://firebase.google.com/docs/web/setup#available-libraries
+
+  // Your web app's Firebase configuration
+  const firebaseConfig = {
+    apiKey: "AIzaSyCPRIediD4e9OVAtKS_W4l9rl_mbRL2lkc",
+    authDomain: "checkers-99.firebaseapp.com",
+    projectId: "checkers-99",
+    storageBucket: "checkers-99.firebasestorage.app",
+    messagingSenderId: "529826802142",
+    appId: "1:529826802142:web:68eb5309ced0ccfa37554f"
+  };
+
+  // Initialize Firebase
+  const app = initializeApp(firebaseConfig);
+</script>
   </body>
 </html>

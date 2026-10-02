@@ -74,14 +74,14 @@
         storageBucket: "checkers-99.firebasestorage.app",
         messagingSenderId: "529826802142",
         appId: "1:529826802142:web:68eb5309ced0ccfa37554f",
-        databaseURL: "https://checkers-99-default-rtdb.firebaseio.com" // Ensure your exact region URL is here
+        databaseURL: "https://checkers-99-default-rtdb.asia-southeast1.firebasedatabase.app"
       };
 
       const fbApp = initializeApp(firebaseConfig);
       const auth = getAuth(fbApp);
       const db = getDatabase(fbApp);
 
-      // Web Audio SFX
+      // --- Web Audio SFX ---
       class SoundEffects {
         constructor() { this.ctx = null; }
         init() {
@@ -157,9 +157,10 @@
       }
       const sfx = new SoundEffects();
 
+      // --- Board Setup & Matrix Normalizer ---
       const BOARD_SIZE = 8;
-
-      // Use empty string "" instead of null so Firebase never drops empty cells or rows
+      
+      // Use empty strings instead of null so Firebase Realtime Database preserves every cell
       function createInitialBoard() {
         const board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(""));
         for (let r = 0; r < BOARD_SIZE; r++) {
@@ -173,7 +174,6 @@
         return board;
       }
 
-      // Reconstructs a clean 8x8 2D array if Firebase converted rows to objects
       function normalizeBoard(rawBoard) {
         if (!rawBoard) return createInitialBoard();
         const safeBoard = [];
@@ -260,6 +260,7 @@
         const [isCreating, setIsCreating] = useState(false);
         const [isJoining, setIsJoining] = useState(false);
 
+        // Sign in on load
         useEffect(() => {
           let isMounted = true;
           const performLogin = async () => {
@@ -267,10 +268,16 @@
               const cred = await signInAnonymously(auth);
               if (isMounted) setUser(cred.user);
             } catch (err) {
-              console.error("Auth error:", err);
+              console.error("Auth sign-in error:", err);
               if (isMounted) {
                 setAuthError(err.message);
-                setNotification("Auth error: " + err.message);
+                if (err.code === 'auth/unauthorized-domain') {
+                  setNotification("Domain not whitelisted in Firebase Auth Settings.");
+                } else if (err.code === 'auth/operation-not-allowed') {
+                  setNotification("Anonymous Authentication is disabled in Firebase Console.");
+                } else {
+                  setNotification("Auth error: " + err.message);
+                }
               }
             }
           };
@@ -301,7 +308,7 @@
           }
         }, [user]);
 
-        // Realtime Database subscription with normalizeBoard
+        // Realtime Database subscription
         useEffect(() => {
           if (!roomId) return;
           const gameRef = ref(db, `checkers_games/${roomId}`);
@@ -358,7 +365,11 @@
             sfx.playMove();
           } catch (err) {
             console.error("Failed to create room:", err);
-            setNotification("Failed to create match: " + (err.message || err));
+            if (err.message && err.message.includes('PERMISSION_DENIED')) {
+              setNotification("PERMISSION DENIED: Ensure Realtime Database rules for checkers_games are published.");
+            } else {
+              setNotification("Failed to create match: " + (err.message || err));
+            }
           } finally {
             setIsCreating(false);
           }
